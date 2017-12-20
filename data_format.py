@@ -1,169 +1,91 @@
 # coding=utf-8
-import copy
-from pandas import DataFrame, Series
-import pandas as pd
+from pandas import Series, DataFrame
+
+from extracted_pcap import get_pcap_content
+import flow_class
 
 
-# 用Pandas计算流包长的时间序列的统计值
-def calculateStatistics(series):
-    return Series(
+def dictToSeriesStatistics(burst):
+    df = DataFrame(burst).T
+    # print df
+    df.len = df.len.astype('int')
+    series = df.len
+    statistics = Series(
         [series.max(), series.min(), series.mean(), series.quantile(0.1), series.quantile(0.2), series.quantile(0.3),
          series.quantile(0.4),
          series.quantile(0.5), series.quantile(0.6), series.quantile(0.7), series.quantile(0.8),
          series.quantile(0.9),
          series.mad(), series.var(), series.std(), series.skew(), series.kurt(), len(list(series))])
+    # 计算不出值的，比方说一个流中只有一个包，填0/与填平均值效果哪个好？
+    statistics.fillna(0, inplace=True)
+    return statistics
 
 
-# 调用calculateStatistics计算流簇中的每个流
-def dictToSeriesStatistics(burstCluster):
-    seriesStatisticsCluster = []
-    for burst in burstCluster:
-        df = DataFrame(burst).T
-        # print df
-        df.len = df.len.astype('int')
-        series = df.len
-        statistics = calculateStatistics(series)
-        # 计算不出值的，比方说一个流中只有一个包，填0/与填平均值效果哪个好？
-        statistics.fillna(0, inplace=True)
-        seriesStatisticsCluster.append(statistics)
-    return seriesStatisticsCluster
+def data_format(path, inf):
+    for pkg in get_pcap_content(path):
+        pkg2flow(pkg, inf)
+    print len(inf)
 
 
-# 如果两个包之间间隔超过1S则分开
-def burstSepatation(pcapContent):
-    time = 0
-    burst = []
-    pcapTemp = {1: pcapContent[1]}
-    for pcap in range(0, len(pcapContent)):
-        if time == 0:
-            time = pcapContent[pcap]['time']
-        else:
-            timeTemp = time
-            time = pcapContent[pcap]['time']
-            if abs(time - timeTemp) <= 1:
-                pcapTemp[pcap] = pcapContent[pcap]
+def pkg2flow(package_information, inf):
+    hash_ipsrc = hash(package_information['ip_src'])
+    hash_ipdst = hash(package_information['ip_dst'])
+    hash_sport = hash(package_information['tcp_sport'])
+    hash_dport = hash(package_information['tcp_dport'])
+    hash_pkg = hash_ipsrc + hash_ipdst + hash_dport + hash_sport
+    # 结构:
+    # dict{hash:list[flow]]}
+    if inf.has_key(hash_pkg) == False:
+        if package_information['tcp_flags'] == 'S' and long(package_information['tcp_ack']) == 0:
+            # print "one flow begin"
+            new_flows = []
+            new_flow = flow_class.flow()
+            new_pkg = {'len': package_information['ip_len']}
+            new_flow.addpkg(new_pkg, flow_class.flow.START_1, package_information['tcp_ack']
+                            , package_information['tcp_seq'], package_information['time'])
+            new_flows.append(new_flow)
+            inf[hash_pkg] = new_flows
+    else:
+        flows = inf[hash_pkg]
+        flow = flows[-1]
+        if package_information['tcp_flags'] == 'S' and package_information['tcp_ack'] == 0:
+            new_flow = flow_class.flow()
+            new_pkg = {'len': package_information['ip_len']}
+            new_flow.addpkg(new_pkg, flow_class.flow.START_1, package_information['tcp_ack']
+                            , package_information['tcp_seq'], package_information['time'])
+            flows.append(new_flow)
+        if flow.getstate() == flow_class.flow.START_1:
+            if package_information['tcp_flags'] == 'AS' and package_information['tcp_ack'] == flow.getseq() + 1:
+                new_pkg = {'len': package_information['ip_len']}
+                flow.addpkg(new_pkg, flow_class.flow.START_2, package_information['tcp_ack']
+                                , package_information['tcp_seq'], package_information['time'])
+        elif flow.getstate() == flow_class.flow.START_2:
+            if package_information['tcp_flags'] == 'A' and package_information['tcp_seq'] == flow.getack():
+                new_pkg = {'len': package_information['ip_len']}
+                flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
+                                , package_information['tcp_seq'], package_information['time'])
+        elif flow.getstate() == flow_class.flow.NORMAL:
+            last_pkg_time = flow.gettime()
+            new_pkg_time = package_information['time']
+            if new_pkg_time - last_pkg_time < 1:
+                new_pkg = {'len': package_information['ip_len']}
+                flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
+                                , package_information['tcp_seq'], package_information['time'])
             else:
-                burst.append(pcapTemp)
-                pcapTemp = {pcap: pcapContent[pcap]}
-    if pcapTemp:
-        burst.append(pcapTemp)
-    return burst
+                if package_information['tcp_flags'] == 'S' and package_information['tcp_ack'] == 0:
+                    new_flow = flow_class.flow()
+                    new_pkg = {'len': package_information['ip_len']}
+                    new_flow.addpkg(new_pkg, flow_class.flow.START_1, package_information['tcp_ack']
+                                    , package_information['tcp_seq'], package_information['time'])
+                    flows.append(new_flow)
+                else:
+                    new_flow = flow_class.flow()
+                    new_pkg = {'len': package_information['ip_len']}
+                    new_flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
+                                    , package_information['tcp_seq'], package_information['time'])
+                    flows.append(flow)
 
 
-# 将流按1s一段分割
-def newburstSepatation(pcapContent):
-    time = 0
-    burst = []
-    pcapTemp = {1: pcapContent[1]}
-    for pcap in range(0, len(pcapContent)):
-        if time == 0:
-            time = pcapContent[pcap]['time']
-            timeTemp = time
-        else:
-            time = pcapContent[pcap]['time']
-            if abs(time - timeTemp) <= 1:
-                pcapTemp[pcap] = pcapContent[pcap]
-            else:
-                burst.append(pcapTemp)
-                pcapTemp = {pcap: pcapContent[pcap]}
-                timeTemp = time
-    if pcapTemp:
-        burst.append(pcapTemp)
-    return burst
-
-
-# 获得TCP会话流簇，writen by caoyu
-def get_tcpFellow(dict_tcp):
-    count = 0
-    list_follow = []
-    index_list = dict_tcp.keys()
-    try:
-        for i in index_list:
-            flag = dict_tcp[i]['tcp_flags']
-            ack = dict_tcp[i]['tcp_ack']
-            if flag == 'S' and ack == '0':
-                # print i
-                flag = False
-                for j in index_list[index_list.index(i) + 1:len(index_list)]:
-                    dst = dict_tcp[i]['ip_dst']
-                    src = dict_tcp[j]['ip_src']
-                    if src == dst:
-                        if dict_tcp[j]['ip_dst'] == dict_tcp[i]['ip_src']:
-                            pass
-                        else:
-                            continue
-                        if dict_tcp[j]['tcp_flags'] == 'AS' and dict_tcp[j]['tcp_ack'] == str(
-                                long(dict_tcp[i]['tcp_seq']) + 1):
-                            for k in index_list[index_list.index(j) + 1:len(index_list)]:
-                                if dict_tcp[k]['ip_src'] == dict_tcp[i]['ip_src'] and dict_tcp[k]['ip_dst'] == \
-                                        dict_tcp[i]['ip_dst']:
-                                    if dict_tcp[k]['tcp_flags'] == 'A' and dict_tcp[k]['tcp_seq'] == dict_tcp[j][
-                                        'tcp_ack']:
-                                        flag = True
-                                        address_A = dict_tcp[i]['ip_src']
-                                        address_B = dict_tcp[i]['ip_dst']
-                                        port_A = dict_tcp[i]['tcp_sport']
-                                        port_B = dict_tcp[i]['tcp_dport']
-                                        list = []
-                                        list.append(i)
-                                        list.append(j)
-                                        list.append(k)
-                                        break
-                                    else:
-                                        continue
-                                else:
-                                    continue
-                        if flag:
-                            break
-                if flag:
-                    if list != []:
-                        # for h in range(list[2]+1,len(dict_tcp)):
-                        for h in index_list[index_list.index(k) + 1:len(index_list)]:
-                            if dict_tcp[h]['ip_src'] == address_A and dict_tcp[h]['ip_dst'] == address_B:
-                                if dict_tcp[h]['tcp_sport'] == port_A and dict_tcp[h]['tcp_dport'] == port_B:
-                                    list.append(h)
-                            elif dict_tcp[h]['ip_src'] == address_B and dict_tcp[h]['ip_dst'] == address_A:
-                                if dict_tcp[h]['tcp_sport'] == port_B and dict_tcp[h]['tcp_dport'] == port_A:
-                                    list.append(h)
-                        # print list
-                        # print len(list)
-                        list_follow.append(list)
-                        count += 1
-                    else:
-                        continue
-        print("num of tcp stream:" + str(len(list_follow)))
-        return list_follow
-    except Exception as e:
-        print(e)
-        return None
-
-
-def dataFormat(pcapContent):
-    # print pcapContent
-    tcpFellowList = get_tcpFellow(pcapContent)
-    # print tcpFellowList
-    # print tcpFellowList
-    tcpFellowOfPcapContent = []
-    count = 0
-    for fellow in tcpFellowList:
-        tcpFellowOfPcapContent.append([])
-        for j in fellow:
-            tcpFellowOfPcapContent[count].append(pcapContent[j])
-        count += 1
-    # list[dict]
-    burstCluster = []
-    for fellow in tcpFellowOfPcapContent:
-        burst = burstSepatation(fellow)
-        burstCluster.extend(burst)
-    print ("num of burst:" + str(len(burstCluster)))
-    origin_data = copy.deepcopy(burstCluster)
-    for burst in burstCluster:
-        for b in burst:
-            newpack = {
-                'len': burst[b]['ip_len'],
-            }
-            burst[b] = newpack
-    # list[Series]
-    seriesStatisticsCluster = dictToSeriesStatistics(burstCluster)
-    print "num of sta", len(seriesStatisticsCluster)
-    return seriesStatisticsCluster, origin_data
+if __name__ == "__main__":
+    path = "D:/telegram/prediction/telegram_test.pcap"
+    data_format(path, {})

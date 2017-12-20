@@ -8,9 +8,8 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
-from pandas import Series
+from pandas import Series, DataFrame
 import os
-import extracted_pcap
 
 
 # TODO:把从PCAP中解析出的统计值储存在DB中，方便使用。
@@ -71,6 +70,22 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix'
     plt.xlabel('Predicted label')
 
 
+def dictToSeriesStatistics(burst):
+    df = DataFrame(burst)
+    # print df
+    df.len = df.len.astype('int')
+    series = df.len
+    statistics = Series(
+        [series.max(), series.min(), series.mean(), series.quantile(0.1), series.quantile(0.2), series.quantile(0.3),
+         series.quantile(0.4),
+         series.quantile(0.5), series.quantile(0.6), series.quantile(0.7), series.quantile(0.8),
+         series.quantile(0.9),
+         series.mad(), series.var(), series.std(), series.skew(), series.kurt(), len(list(series))])
+    # 计算不出值的，比方说一个流中只有一个包，填0/与填平均值效果哪个好？
+    statistics.fillna(0, inplace=True)
+    return statistics
+
+
 # 从telegram文件夹中获取数据流
 def get_telegram_data(telegram_path):
     print "begin producing telegram data"
@@ -79,9 +94,14 @@ def get_telegram_data(telegram_path):
         path = os.path.join(telegram_path, file)
         print path
         # 用sklearn中工具归一化数据
-        data, a = data_format.dataFormat(extracted_pcap.get_pcap_content(path))
-        # data, a = data_format.dataFormat(trafficAnalysis.getpcapcontent(path))
-        telegram_data.extend(preprocessing.scale(data).tolist())
+        inf = {}
+        data_format.data_format(path, inf)
+        for key in inf:
+            flows = inf[key]
+            for flow in flows:
+                pkgs = flow.get_packages()
+                sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
+                telegram_data.append(sta.tolist())
     return telegram_data
 
 
@@ -92,9 +112,14 @@ def get_others_data(others_path):
     for file in os.listdir(others_path):
         path = os.path.join(others_path, file)
         print path
-        data, a = data_format.dataFormat(extracted_pcap.get_pcap_content(path))
-        # data, a = data_format.dataFormat(trafficAnalysis.getpcapcontent(path))
-        others_data.extend(preprocessing.scale(data).tolist())
+        inf = {}
+        data_format.data_format(path, inf)
+        for key in inf:
+            flows = inf[key]
+            for flow in flows:
+                pkgs = flow.get_packages()
+                sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
+                others_data.append(sta.tolist())
     return others_data
 
 
@@ -127,11 +152,11 @@ if __name__ == '__main__':
     last_score = []
     bool_calculate_best_num_of_trees = False
     num = 10
-    telegram_data = get_telegram_data("D:/test/telegram")
+    telegram_data = get_telegram_data("D:/telegram/telegram")
     print ('-' * 99)
     print ("length of telegram data")
     print (len(telegram_data))
-    others_data = get_others_data("D:/test/others")
+    others_data = get_others_data("D:/telegram/others")
     # 填充目标值
     target = [1 for i in telegram_data]
     target0 = [0 for i in others_data]
@@ -143,7 +168,7 @@ if __name__ == '__main__':
     print (len(data), len(target))
     print ('-' * 99)
     clf = RandomForestClassifier(n_estimators=num)
-    # cross_val_test(clf, data, target)
+    cross_val_test(clf, data, target)
     # calculate_best_num_of_trees(bool_calculate_best_num_of_trees,10)
-    clf.fit(data, target)
-    joblib.dump(clf, "random_forests_cls.pkl")
+    # clf.fit(data, target)
+    # joblib.dump(clf, "random_forests_cls.pkl")
