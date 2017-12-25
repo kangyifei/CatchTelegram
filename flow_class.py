@@ -32,7 +32,10 @@ class flow(object):
         return self.last_seq
 
     def get_packages(self):
-        return self.packages
+        if (len(self.packages)) < 4:
+            return None
+        else:
+            return self.packages
 
     def get_pkg_num(self):
         return len(self.packages)

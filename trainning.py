@@ -96,12 +96,16 @@ def get_telegram_data(telegram_path):
         # 用sklearn中工具归一化数据
         inf = {}
         data_format.data_format(path, inf)
+        print "begin to data formating"
         for key in inf:
             flows = inf[key]
             for flow in flows:
                 pkgs = flow.get_packages()
-                sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
-                telegram_data.append(sta.tolist())
+                if not pkgs is None:
+                    print "begin to sta data"
+                    sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
+                    print "sta data finished"
+                    telegram_data.append(sta.tolist())
     return telegram_data
 
 
@@ -118,8 +122,9 @@ def get_others_data(others_path):
             flows = inf[key]
             for flow in flows:
                 pkgs = flow.get_packages()
-                sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
-                others_data.append(sta.tolist())
+                if not pkgs is None:
+                    sta = preprocessing.scale(dictToSeriesStatistics(pkgs))
+                    others_data.append(sta.tolist())
     return others_data
 
 

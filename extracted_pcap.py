@@ -7,8 +7,9 @@ import os
 
 
 def get_pcap_content(pcap_path):
+    print "begin to extracted pcap"
     if os.path.exists(pcap_path):
-        print pcap_path+" exists"
+        print pcap_path + " exists"
         pass
     else:
         print "no file exists"
@@ -17,27 +18,29 @@ def get_pcap_content(pcap_path):
         pcap_header_length = 24
         pcap_header = pcapfile.read(pcap_header_length)
         while True:
-            time_data= pcapfile.read(4)
+            time_data = pcapfile.read(4)
             # print len(time_string)
             if (len(time_data)) == 4:
                 pass
             else:
+                print"extrace pcap finished"
                 break
             package_information = {}
             time = struct.unpack('I', time_data)[0]
             # print time
             package_information['time'] = time
             unuseful_data = pcapfile.read(8)
-            len_data=pcapfile.read(4)
+            len_data = pcapfile.read(4)
             if (len(len_data)) == 4:
                 pass
             else:
+                print"extrace pcap finished"
                 break
             packet_len = struct.unpack('I', len_data)[0]
             # print packet_len
             packet_data = pcapfile.read(packet_len)
 
-            if hex(ord(packet_data[28-16:  29-16])) == '0x8':  ###IPv4协议类型
+            if hex(ord(packet_data[28 - 16:  29 - 16])) == '0x8':  ###IPv4协议类型
                 # print "ipv4"
                 pass
             else:
@@ -46,13 +49,14 @@ def get_pcap_content(pcap_path):
             '''
             获取IP包头长度
             '''
-            ipHeader_len = int(hex(ord(packet_data[30-16:  31-16]))[-1], 16) * 4
-            if hex(ord(packet_data[39-16:  40-16])) == '0x6':
+            ipHeader_len = int(hex(ord(packet_data[30 - 16:  31 - 16]))[-1], 16) * 4
+            if hex(ord(packet_data[39 - 16:  40 - 16])) == '0x6':
                 package_information['proto'] = 'tcp'
-                package_information['ip_src'] = packet_data[42-16:  46-16]
-                package_information['ip_dst'] = packet_data[46-16:  50-16]
-                tcpHeader_len = int(hex(ord(packet_data[30 + ipHeader_len + 12-16:  30 + ipHeader_len + 13-16]))[0], 16) * 4
-                flags_value = binascii.b2a_hex(packet_data[30 + ipHeader_len + 13-16:  30 + ipHeader_len + 14-16])
+                package_information['ip_src'] = packet_data[42 - 16:  46 - 16]
+                package_information['ip_dst'] = packet_data[46 - 16:  50 - 16]
+                tcpHeader_len = int(hex(ord(packet_data[30 + ipHeader_len + 12 - 16:  30 + ipHeader_len + 13 - 16]))[0],
+                                    16) * 4
+                flags_value = binascii.b2a_hex(packet_data[30 + ipHeader_len + 13 - 16:  30 + ipHeader_len + 14 - 16])
                 flag = ""
                 if flags_value[0] == '8':
                     flag = 'C'
@@ -75,13 +79,13 @@ def get_pcap_content(pcap_path):
                 # print flag
                 package_information['tcp_flags'] = flag
                 ack_data = packet_data[
-                           30-16 + ipHeader_len + 8:  30 -16+ ipHeader_len + 12]
+                           30 - 16 + ipHeader_len + 8:  30 - 16 + ipHeader_len + 12]
                 seq_data = packet_data[
-                           30 -16+ ipHeader_len + 4:  30 -16+ ipHeader_len + 8]
+                           30 - 16 + ipHeader_len + 4:  30 - 16 + ipHeader_len + 8]
                 sport_data = packet_data[
-                             30 -16+ ipHeader_len + 0:  30-16 + ipHeader_len + 2]
+                             30 - 16 + ipHeader_len + 0:  30 - 16 + ipHeader_len + 2]
                 dport_data = packet_data[
-                             30 -16+ ipHeader_len + 2:  30 -16+ ipHeader_len + 4]
+                             30 - 16 + ipHeader_len + 2:  30 - 16 + ipHeader_len + 4]
                 package_information['tcp_ack'] = struct.unpack("!L", ack_data)[0]
                 package_information['tcp_seq'] = struct.unpack("!L", seq_data)[0]
                 package_information['tcp_sport'] = sport_data
@@ -91,7 +95,7 @@ def get_pcap_content(pcap_path):
                 yield (package_information)
 
 
-if __name__ =="__main__":
-    path="D:/telegram/prediction/telegram_test.pcap"
+if __name__ == "__main__":
+    path = "D:/telegram/prediction/telegram_test.pcap"
     for pkg in get_pcap_content(path):
         print pkg

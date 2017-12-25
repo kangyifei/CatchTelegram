@@ -22,12 +22,15 @@ def dictToSeriesStatistics(burst):
 
 
 def data_format(path, inf):
+    print "begin to put pkg into flow"
     for pkg in get_pcap_content(path):
         pkg2flow(pkg, inf)
-    print len(inf)
+    print "num of wuyuanzu", len(inf)
 
 
 def pkg2flow(package_information, inf):
+    if package_information is None:
+        return
     hash_ipsrc = hash(package_information['ip_src'])
     hash_ipdst = hash(package_information['ip_dst'])
     hash_sport = hash(package_information['tcp_sport'])
@@ -54,36 +57,43 @@ def pkg2flow(package_information, inf):
             new_flow.addpkg(new_pkg, flow_class.flow.START_1, package_information['tcp_ack']
                             , package_information['tcp_seq'], package_information['time'])
             flows.append(new_flow)
+            inf[hash_pkg]=flows
         if flow.getstate() == flow_class.flow.START_1:
             if package_information['tcp_flags'] == 'AS' and package_information['tcp_ack'] == flow.getseq() + 1:
                 new_pkg = {'len': package_information['ip_len']}
                 flow.addpkg(new_pkg, flow_class.flow.START_2, package_information['tcp_ack']
-                                , package_information['tcp_seq'], package_information['time'])
+                            , package_information['tcp_seq'], package_information['time'])
+                inf[hash_pkg] = flows
         elif flow.getstate() == flow_class.flow.START_2:
             if package_information['tcp_flags'] == 'A' and package_information['tcp_seq'] == flow.getack():
                 new_pkg = {'len': package_information['ip_len']}
                 flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
-                                , package_information['tcp_seq'], package_information['time'])
+                            , package_information['tcp_seq'], package_information['time'])
+                inf[hash_pkg] = flows
         elif flow.getstate() == flow_class.flow.NORMAL:
             last_pkg_time = flow.gettime()
             new_pkg_time = package_information['time']
             if new_pkg_time - last_pkg_time < 1:
                 new_pkg = {'len': package_information['ip_len']}
                 flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
-                                , package_information['tcp_seq'], package_information['time'])
+                            , package_information['tcp_seq'], package_information['time'])
+                inf[hash_pkg] = flows
             else:
+                flow.state=flow_class.flow.END_4
                 if package_information['tcp_flags'] == 'S' and package_information['tcp_ack'] == 0:
                     new_flow = flow_class.flow()
                     new_pkg = {'len': package_information['ip_len']}
                     new_flow.addpkg(new_pkg, flow_class.flow.START_1, package_information['tcp_ack']
                                     , package_information['tcp_seq'], package_information['time'])
                     flows.append(new_flow)
+                    inf[hash_pkg] = flows
                 else:
                     new_flow = flow_class.flow()
                     new_pkg = {'len': package_information['ip_len']}
                     new_flow.addpkg(new_pkg, flow_class.flow.NORMAL, package_information['tcp_ack']
                                     , package_information['tcp_seq'], package_information['time'])
                     flows.append(flow)
+                    inf[hash_pkg] = flows
 
 
 if __name__ == "__main__":
